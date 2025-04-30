@@ -7,28 +7,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 def main():
     p = argparse.ArgumentParser(
-        description='Inferencia de similitud con artefacto pre-entrenado')
+        description='Top-3 similitud entre asuntos y catálogo de sinónimos')
     p.add_argument('artefacto',
-                   help='Ruta al archivo artefacto_similitud.joblib')
+                   help='artefacto_similitud.joblib')
     p.add_argument('asuntos_excel',
-                   help='Excel con columna "Asunto" (y opcionalmente "ID" y "Correo")')
-    p.add_argument('--output', '-o',
-                   default='resultados_produccion.xlsx',
-                   help='Excel de salida con resultados')
+                   help='Excel diario con columnas Asunto, ID, Correo')
+    p.add_argument('--output', '-o', default='resultados_top3.xlsx',
+                   help='Excel de salida con top-3')
     args = p.parse_args()
 
-    # 1) Carga artefacto previamente generado
+    # 1) Carga artefacto entrenado
     arte = joblib.load(args.artefacto)
     model_name = arte['model_name']
-    meta_df    = arte['meta_df']
-    syn_emb    = arte['syn_emb']
-    syn_texts  = arte['syn_texts']
+    syn_texts = arte['syn_texts']
+    syn_emb   = arte['syn_emb']
 
-    # 2) Carga el Excel de asuntos
+    # 2) Carga asuntos nuevos
     df_as = pd.read_excel(args.asuntos_excel)
     texts = df_as['Asunto'].astype(str).tolist()
 
-    # 3) Calcula embeddings de los asuntos
+    # 3) Embeddings de asuntos
     model = SentenceTransformer(model_name)
     as_emb = model.encode(
         texts,
@@ -37,29 +35,32 @@ def main():
         convert_to_numpy=True
     )
 
-    # 4) Calcula similitud coseno y extrae mejor categoría
-    sim_mat  = cosine_similarity(as_emb, syn_emb)
-    best_idx = sim_mat.argmax(axis=1)
-    # ==> aquí formateamos el porcentaje en una lista de strings
-    best_sims_numeric = (sim_mat.max(axis=1) * 100).round(2)
-    best_sim = [f"{v:.2f}%" for v in best_sims_numeric]
+    # 4) Matriz de similitud y top-3
+    sim_mat = cosine_similarity(as_emb, syn_emb)
+    # Para cada row, extraemos índices de top-3 similares
+    topk = 3
+    idx_sorted = sim_mat.argsort(axis=1)[:, ::-1][:, :topk]
+    vals_sorted = -(-sim_mat).argsort(axis=1)[:, :topk]  # pero mejor obtener valores directos:
+    top_vals = np.take_along_axis(sim_mat, idx_sorted, axis=1)
 
-    # 5) Prepara DataFrame de salida
+    # Formateamos en porcentaje
+    top_pcts = [[f"{v*100:.2f}%" for v in row] for row in top_vals]
+
+    # 5) Construye DataFrame de salida
     out = pd.DataFrame({
         'Asunto': texts,
-        **({'ID': df_as['ID']}         if 'ID' in df_as else {}),
-        **({'Correo': df_as['Correo']} if 'Correo' in df_as else {}),
-        'Tipo de Movimiento': meta_df['Tipo de Movimiento']
-                                 .iloc[best_idx].values,
-        'Ramo':                meta_df['Ramo']
-                                 .iloc[best_idx].values,
-        'Categoría Ejemplo':   [syn_texts[i] for i in best_idx],
-        'Similitud':           best_sim
+        **({'ID': df_as['ID']} if 'ID' in df_as else {}),
+        **({'Correo': df_as['Correo']} if 'Correo' in df_as else {})
     })
 
-    # 6) Exporta a Excel
+    # Añadimos columnas top-3
+    for rank in range(topk):
+        out[f'Match_{rank+1}'] = [syn_texts[i] for i in idx_sorted[:, rank]]
+        out[f'Sim_{rank+1}']   = [top_pcts[r][rank] for r in range(len(texts))]
+
+    # 6) Exporta
     out.to_excel(args.output, index=False)
-    print(f"[+] Resultados guardados en: {args.output}")
+    print(f"[+] Resultados top-3 guardados en: {args.output}")
 
 if __name__ == '__main__':
     main()
