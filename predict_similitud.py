@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Inferencia de similitud: extrae top-3 matches, porcentajes y fila.
+"""
 import argparse
 import pandas as pd
 import numpy as np
@@ -39,23 +42,25 @@ def main():
     # 4) Matriz de similitud y top-3
     sim_mat = cosine_similarity(as_emb, syn_emb)
     topk = 3
-    idx_sorted = sim_mat.argsort(axis=1)[:, ::-1][:, :topk]
+    # argsort descendente usando -sim_mat
+    idx_sorted = np.argsort(-sim_mat, axis=1)[:, :topk]
     top_vals = np.take_along_axis(sim_mat, idx_sorted, axis=1)
 
-    # 5) Formateo porcentajes
-    top_pcts = [[f"{v*100:.2f}%" for v in row] for row in top_vals]
-
-    # 6) Construcción de DataFrame de salida
+    # 5) Construcción de DataFrame de salida
     out = pd.DataFrame({
         'Asunto': texts,
         **({'ID': df_as['ID']} if 'ID' in df_as else {}),
         **({'Correo': df_as['Correo']} if 'Correo' in df_as else {})
     })
     for rank in range(topk):
-        out[f'Match_{rank+1}'] = [syn_texts[i] for i in idx_sorted[:, rank]]
-        out[f'Sim_{rank+1}']   = [top_pcts[r][rank] for r in range(len(texts))]
+        match_col = f'Match_{rank+1}'
+        sim_col   = f'Sim_{rank+1}'
+        fila_col  = f'Fila_{rank+1}'
+        out[match_col] = [syn_texts[i] for i in idx_sorted[:, rank]]
+        out[sim_col]   = [f"{v*100:.2f}%" for v in top_vals[:, rank]]
+        out[fila_col]  = (idx_sorted[:, rank] + 2).tolist()
 
-    # 7) Exporta resultados
+    # 6) Exporta resultados
     out.to_excel(args.output, index=False)
     print(f"[+] Resultados top-3 guardados en: {args.output}")
 
