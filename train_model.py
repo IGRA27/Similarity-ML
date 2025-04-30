@@ -20,14 +20,18 @@ from sentence_transformers import SentenceTransformer
 import joblib
 
 def load_synonyms(excel_path: str):
+    """
+    Carga el Excel de sinónimos y devuelve:
+      - meta: DataFrame con Tipo de Movimiento y Ramo
+      - syn_texts: lista de strings concatenados para embeddings
+    """
     df = pd.read_excel(excel_path)
-    # Metadatos
+    # Metadatos: Tipo de Movimiento y Ramo
     meta = df[['Tipo de Movimiento', 'Ramo']].copy()
-    # Columnas de opciones
+    # Columnas de opciones contienen 'Opcion'
     opt_cols = [c for c in df.columns if 'Opcion' in c]
     syn_texts = []
     for _, row in df.iterrows():
-        # Concatenamos 'Tipo de Movimiento' y 'Ramo' al texto base
         base = f"{row['Tipo de Movimiento']} {row['Ramo']}"
         opts = [str(row[c]).strip() for c in opt_cols
                 if pd.notna(row[c]) and str(row[c]).strip()]
@@ -37,7 +41,7 @@ def load_synonyms(excel_path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Entrena artefacto de embeddings de sinónimos (2000 filas).')
+        description='Entrena artefacto de embeddings de sinónimos.')
     parser.add_argument('synonyms_excel',
                         help='Catalogo de movimientos (.xlsx)')
     parser.add_argument('--output', '-o', default='artefacto_similitud.joblib',
@@ -46,10 +50,10 @@ def main():
                         help='Modelo SBERT para embeddings')
     args = parser.parse_args()
 
-    # Carga y prepara textos
+    # 1) Carga y preparación de textos
     meta_df, syn_texts = load_synonyms(args.synonyms_excel)
 
-    # Entrena embeddings
+    # 2) Cálculo de embeddings
     model = SentenceTransformer(args.model)
     syn_emb = model.encode(
         syn_texts,
@@ -58,7 +62,7 @@ def main():
         convert_to_numpy=True
     )
 
-    # Guarda artefacto
+    # 3) Guardado del artefacto
     artefact = {
         'model_name': args.model,
         'meta_df': meta_df,
